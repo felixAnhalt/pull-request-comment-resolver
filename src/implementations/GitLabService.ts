@@ -1,7 +1,7 @@
 /**
  * @file Implements the VersionControlService interface for GitLab using @gitbeaker/rest.
  */
-import { Gitlab } from "@gitbeaker/rest";
+import {Camelize, DiscussionNotePositionOptions, DiscussionNoteSchema, DiscussionSchema, Gitlab} from "@gitbeaker/rest";
 import {
   VersionControlService,
   PullRequestDetails, // GitLab calls these Merge Requests
@@ -263,36 +263,33 @@ export class GitLabService implements VersionControlService {
     try {
       // Fetch the original note to determine if we can use its position.
       // This helps decide if the new discussion should be linked to a specific diff line.
-      const originalNote = await this.gitlab.MergeRequestNotes.show(
-        prDetails.repo,
-        prDetails.pullNumber,
-        Number(replyToCommentId)
-      );
+      const originalDiscussionThread = await this.gitlab.MergeRequestDiscussions.show(
+          prDetails.repo,
+          prDetails.pullNumber,
+          "" + replyToCommentId
+      )
+      const firstThreadNote = originalDiscussionThread.notes && originalDiscussionThread.notes[0];
 
-      // Prepare options for creating the new discussion.
-      // The type for `position` is inferred from `originalNote.position`.
-      // `MergeRequestDiscussions.create` expects an options object as the third argument.
-      const discussionOptions: {
-        body: string;
-        // Position type should be compatible with what MergeRequestDiscussions.create expects.
-        // This is typically an object including { base_sha, start_sha, head_sha, new_path, new_line, etc. }
-        // We are reusing originalNote.position, assuming its structure is compatible or sufficient.
-        position?: Exclude<typeof originalNote.position, null | undefined>;
-      } = {
-        body: discussionBody,
-      };
+      if (!firstThreadNote) {
+        throw new Error(
+          `No original discussion thread found for comment ID ${replyToCommentId}.`
+        );
+      }
 
-      const positionFromOriginalNote = originalNote.position;
-      if (positionFromOriginalNote) {
+      const newDiscussionNote: Partial<DiscussionNoteSchema | Camelize<DiscussionNoteSchema>> = {
+        ...firstThreadNote,
+      }
+
+      if (originalDiscussionThread) {
         // If the original note had a position, use it for the new discussion.
-        discussionOptions.position = positionFromOriginalNote;
+        newDiscussionNote.position = firstThreadNote.position;
         console.log(
           `Original comment ${replyToCommentId} has a position. Creating new discussion with this position.`
         );
       } else {
         // If no position on the original note, create a general discussion on the MR.
         // We'll prepend a reference to the original comment ID in the body for context.
-        discussionOptions.body = `Replying to (or inspired by) comment ID ${replyToCommentId}:\n${discussionBody}`;
+        newDiscussionNote.body = `Replying to (or inspired by) comment ID ${replyToCommentId}:\n${discussionBody}`;
         console.log(
           `Original comment ${replyToCommentId} has no position. Creating new general discussion on MR, referencing the original comment.`
         );
@@ -303,9 +300,9 @@ export class GitLabService implements VersionControlService {
       await this.gitlab.MergeRequestDiscussions.create(
         prDetails.repo,
         prDetails.pullNumber,
-        discussionOptions.body,
+          newDiscussionNote.body!,
           {
-            position: discussionOptions.position,
+            position: firstThreadNote.position as DiscussionNotePositionOptions,
           }
       );
 
