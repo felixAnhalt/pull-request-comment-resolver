@@ -14,6 +14,7 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
+    "@gitbeaker/rest": "^42.5.0",
     "@langchain/azure-openai": "^0.0.11",
     "@octokit/rest": "^21.1.1",
     "dotenv": "^16.5.0",
