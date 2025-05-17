@@ -14,7 +14,8 @@ export interface Comment {
   /** Path to the file the comment refers to, if applicable. */
   filePath?: string;
   /** Line number in the file the comment refers to, if applicable. */
-  lineNumber?: number;
+  endLineNumber?: number;
+  startLineNumber?: number | null;
   // TODO: Add other relevant comment properties as needed, e.g., author, created_at.
 }
 

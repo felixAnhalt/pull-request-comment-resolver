@@ -45,6 +45,18 @@ function getCodeContext(
   return lines.slice(startLine, endLine + 1).join("\n");
 }
 
+const getOriginalCode = (startLine: number, endLine: number, fileContent: string) => {
+    const lines = fileContent.split("\n");
+    const startLineIndex = startLine - 1; // Convert to 0-indexed
+    const endLineIndex = endLine - 1; // Convert to 0-indexed
+
+    if (startLineIndex < 0 || endLineIndex >= lines.length) {
+        return ""; // Line number out of bounds
+    }
+
+    return lines.slice(startLineIndex, endLineIndex + 1).join("\n");
+}
+
 /**
  * Processes a single review comment: fetches context, generates a suggestion, and posts it.
  * @param comment - The review comment to process.
@@ -64,8 +76,7 @@ async function processComment(
       100
     )}..."`
   );
-
-  if (!comment.filePath || !comment.lineNumber) {
+  if (!comment.filePath || !comment.endLineNumber) {
     console.log(
       "Comment does not have a specific file path or line number. Skipping."
     );
@@ -85,7 +96,7 @@ async function processComment(
     if (fileContent) {
       codeContext = getCodeContext(
         fileContent.content,
-        comment.lineNumber,
+        comment.endLineNumber,
         MAX_CONTEXT_LINES
       );
     }
@@ -98,16 +109,22 @@ async function processComment(
 
   if (!codeContext) {
     console.log(
-      `Could not retrieve valid code context for comment ${comment.id} on ${comment.filePath}:${comment.lineNumber}. Skipping suggestion.`
+      `Could not retrieve valid code context for comment ${comment.id} on ${comment.filePath}:${comment.endLineNumber}. Skipping suggestion.`
     );
     return;
   }
 
+  const originalCode = getOriginalCode(
+    comment.startLineNumber ?? comment.endLineNumber,
+    comment.endLineNumber,
+    fileContent!.content
+  );
   // 2. Prepare payload for LLM
   const llmPayload: LlmPromptPayload = {
     reviewerComment: comment.body,
     codeContext: codeContext,
     filePath: comment.filePath,
+    originalCode,
     // language: "typescript", // TODO: Detect language or make configurable
     // projectRules: "Ensure all functions are documented.", // TODO: Make configurable
   };
@@ -152,7 +169,7 @@ async function processComment(
 /**
  * Main function to run the PR comment resolver.
  */
-async function main() {
+export async function main() {
   console.log("Starting PR Comment Resolver...");
 
   const prIdentifierEnv =
@@ -221,7 +238,7 @@ async function main() {
     for (const comment of comments) {
       // TODO: Add a filter here, e.g., if comment.body.includes("[suggest]")
       // For now, process all comments that are on a file/line.
-      if (comment.filePath && comment.lineNumber) {
+      if (comment.filePath && comment.endLineNumber) {
         await processComment(comment, prDetails, vcsService, llmService);
       } else {
         console.log(

@@ -165,7 +165,7 @@ export class GitLabService implements VersionControlService {
             id: note.id,
             body: note.body,
             filePath: filePath,
-            lineNumber: lineNumber,
+            endLineNumber: lineNumber,
           };
         });
     } catch (error: any) {

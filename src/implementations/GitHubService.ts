@@ -137,7 +137,8 @@ export class GitHubService implements VersionControlService {
         id: comment.id,
         body: comment.body,
         filePath: comment.path,
-        lineNumber: comment.line || comment.original_line, // original_line for outdated comments
+        endLineNumber: comment.line || comment.original_line, // original_line for outdated comments,
+        startLineNumber: comment.start_line,
         // TODO: Map other relevant fields like user, created_at
       }));
     } catch (error: any) {
