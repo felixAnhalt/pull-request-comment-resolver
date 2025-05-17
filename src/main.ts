@@ -4,6 +4,7 @@
  */
 import "dotenv/config";
 import { GitHubService } from "./implementations/GitHubService";
+import { GitLabService} from "./implementations/GitLabService";
 import { AzureOpenAiLlmService } from "./implementations/AzureOpenAiLlmService";
 import {
   VersionControlService,
@@ -15,6 +16,7 @@ import { LlmService, LlmPromptPayload } from "./services/LlmService";
 
 // Constants
 const MAX_CONTEXT_LINES = 20; // Number of lines before and after a commented line to fetch for context
+const SMALL_CONTEXT_LINES = 3;
 
 /**
  * Fetches context lines around a specific line number from file content.
@@ -61,12 +63,14 @@ const getOriginalCode = (startLine: number, endLine: number, fileContent: string
  * Processes a single review comment: fetches context, generates a suggestion, and posts it.
  * @param comment - The review comment to process.
  * @param prDetails - Details of the pull request.
+ * @param aggregatedComments - Aggregated comments for context.
  * @param vcsService - Instance of the VersionControlService.
  * @param llmService - Instance of the LlmService.
  */
 async function processComment(
   comment: Comment,
   prDetails: PullRequestDetails,
+  aggregatedComments: string,
   vcsService: VersionControlService,
   llmService: LlmService
 ): Promise<void> {
@@ -125,6 +129,7 @@ async function processComment(
     codeContext: codeContext,
     filePath: comment.filePath,
     originalCode,
+    aggregatedComments,
     // language: "typescript", // TODO: Detect language or make configurable
     // projectRules: "Ensure all functions are documented.", // TODO: Make configurable
   };
@@ -166,6 +171,64 @@ async function processComment(
   }
 }
 
+/*
+    Sometimes, comments reference each other. For example, a comment might say:
+    Hey, change the naming from the interface IExample to ExampleInterface to comply with our naming conventions.
+    And in another comment reference that by saying something like, change here as well.
+    So for that, we'll have to aggregate the comments and process them in a way that we can
+    understand the context of the comment and the comment it references.
+ */
+const aggregateComments = async (
+    prDetails: PullRequestDetails,
+    comments: Comment[],
+    vcsService: VersionControlService,
+    ) => {
+
+  const codeContexts: Map<string, string> = new Map();
+
+  for (const comment of comments) {
+    if(!comment.filePath || !comment.endLineNumber) {
+        console.log(
+            "Comment does not have a specific file path or line number. Skipping."
+        );
+        continue;
+    }
+    // Attempt to get file content from the PR's head ref
+    const fileContent = await vcsService.getFileContent(
+        prDetails,
+        comment.filePath,
+        prDetails.headRef
+    );
+    if(!fileContent){
+        console.log(
+            `Could not retrieve valid code context for comment ${comment.id} on ${comment.filePath}:${comment.endLineNumber}. Skipping suggestion.`
+        );
+        continue;
+    }
+    const codeContext = getCodeContext(
+        fileContent.content,
+        comment.endLineNumber,
+        SMALL_CONTEXT_LINES
+    );
+    if (codeContext) {
+        codeContexts.set("" + comment.id, codeContext);
+        continue;
+    }
+    console.log(
+        `Could not retrieve valid code context for comment ${comment.id} on ${comment.filePath}:${comment.endLineNumber}. Skipping suggestion.`
+    );
+  }
+
+  // we merge all the comments into a big string by JSON.stringify
+  return comments.map((comment) => ({
+    ...comment,
+    context: codeContexts.get("" + comment.id),
+  })).reduce(
+    (acc, curr) => acc + curr,
+    ""
+  );
+}
+
 /**
  * Main function to run the PR comment resolver.
  */
@@ -173,44 +236,51 @@ export async function main() {
   console.log("Starting PR Comment Resolver...");
 
   const prIdentifierEnv =
-    process.env.PULL_REQUEST_URL || process.env.PULL_REQUEST_NUMBER;
+      process.env.PULL_REQUEST_URL || process.env.PULL_REQUEST_NUMBER;
   if (!prIdentifierEnv) {
     console.error(
-      "PULL_REQUEST_URL or PULL_REQUEST_NUMBER environment variable not set."
+        "PULL_REQUEST_URL or PULL_REQUEST_NUMBER environment variable not set."
     );
     process.exit(1);
   }
 
   let prIdentifier:
-    | string
-    | number
-    | { owner: string; repo: string; pullNumber: number } = prIdentifierEnv;
+      | string
+      | number
+      | { owner: string; repo: string; pullNumber: number } = prIdentifierEnv;
+  let isGitLab = false;
 
   // Basic check if it's a number (string or actual number)
   if (!isNaN(Number(prIdentifierEnv))) {
-    const owner = process.env.GITHUB_OWNER;
-    const repo = process.env.GITHUB_REPO;
+    const owner = process.env.GITHUB_OWNER || process.env.GITLAB_OWNER;
+    const repo = process.env.GITHUB_REPO || process.env.GITLAB_REPO;
     if (owner && repo) {
       prIdentifier = { owner, repo, pullNumber: Number(prIdentifierEnv) };
       console.log(
-        `Using PR number ${prIdentifierEnv} for repository ${owner}/${repo}`
+          `Using PR number ${prIdentifierEnv} for repository ${owner}/${repo}`
       );
+      isGitLab = process.env.GITLAB_OWNER !== undefined;
     } else {
       console.log(
-        `Using PR number ${prIdentifierEnv}. Owner/Repo will be inferred by GitHubService if not part of a URL.`
+          `Using PR number ${prIdentifierEnv}. Owner/Repo will be inferred by service if not part of a URL.`
       );
-      prIdentifier = Number(prIdentifierEnv); // Let GitHubService handle it or throw error
+      prIdentifier = Number(prIdentifierEnv); // Let service handle it or throw error
     }
   } else if (prIdentifierEnv.includes("github.com")) {
-    console.log(`Processing PR from URL: ${prIdentifierEnv}`);
-    // GitHubService will parse the URL
+    console.log(`Processing PR from GitHub URL: ${prIdentifierEnv}`);
+    isGitLab = false;
+  } else if (prIdentifierEnv.includes("gitlab")) {
+    console.log(`Processing PR from GitLab URL: ${prIdentifierEnv}`);
+    isGitLab = true;
   } else {
     console.error("Invalid PULL_REQUEST_URL or PULL_REQUEST_NUMBER format.");
     process.exit(1);
   }
 
   try {
-    const vcsService: VersionControlService = new GitHubService();
+    const vcsService: VersionControlService = isGitLab
+        ? new GitLabService()
+        : new GitHubService();
     const llmService: LlmService = new AzureOpenAiLlmService();
 
     // 1. Get PR Details
@@ -233,12 +303,15 @@ export async function main() {
       return;
     }
 
+    // 2.1. Aggregate comments
+    const aggregatedComments = await aggregateComments(prDetails, comments, vcsService);
+
     // 3. Process each comment
     // For MVP, process all comments. Later, might filter for specific keywords or unanswered comments.
     for (const comment of comments) {
       // For now, process all comments that are on a file/line.
       if (comment.filePath && comment.endLineNumber) {
-        await processComment(comment, prDetails, vcsService, llmService);
+        await processComment(comment, prDetails, aggregatedComments, vcsService, llmService);
       } else {
         console.log(
           `Skipping comment ID ${comment.id} as it's not attached to a specific file/line.`

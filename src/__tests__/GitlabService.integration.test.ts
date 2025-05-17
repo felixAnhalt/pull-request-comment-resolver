@@ -3,10 +3,10 @@ import { VersionControlService, PullRequestDetails } from '../services/VersionCo
 
 import {describe, expect, beforeAll, it} from 'vitest';
 
-const GITLAB_PROJECT_PATH = process.env.GITLAB_PROJECT_PATH || 'felixAnhalt/pull-request-comment-resolver';
+const GITLAB_PROJECT_PATH = process.env.GITLAB_PROJECT_PATH || 'projekte-oev-berlin/digital-campus-360/funpoints-dapp/dapp-frontend';
 const GITLAB_PR_NUMBER = process.env.GITLAB_PR_NUMBER
     ? parseInt(process.env.GITLAB_PR_NUMBER, 10)
-    : 1;
+    : 520;
 
 describe('GitLabService Integration', () => {
     let gitlab: VersionControlService;
@@ -22,10 +22,13 @@ describe('GitLabService Integration', () => {
     });
 
     it('fetches merge request details', async () => {
+
         expect(prDetails).toHaveProperty('repo', GITLAB_PROJECT_PATH);
         expect(prDetails).toHaveProperty('pullNumber', GITLAB_PR_NUMBER);
         expect(prDetails.headRef).toBeTruthy();
         expect(prDetails.baseRef).toBeTruthy();
+    }, {
+        timeout: 600 * 1000,
     });
 
     it('fetches comments on the merge request', async () => {

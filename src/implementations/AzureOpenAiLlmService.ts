@@ -56,7 +56,7 @@ export class AzureOpenAiLlmService implements LlmService {
    * @returns A promise that resolves to the LLM-generated suggestion.
    */
   async generateSuggestion(payload: LlmPromptPayload): Promise<LlmSuggestion> {
-    const { reviewerComment, codeContext, projectRules, language, filePath, originalCode } =
+    const { reviewerComment, codeContext, projectRules, language, filePath, originalCode, aggregatedComments } =
       payload;
 
     const systemPrompt = `You are an expert software developer assisting with code reviews. Your task is to provide a code suggestion to address a reviewer's comment.
@@ -93,6 +93,10 @@ Here is the original code:
 --- start of exact original code lines you are replacing in github ---
 ${originalCode}
 --- end of exact original code lines you are replacing in github ---
+Here is a collection of all comments from this pull request:
+--- start of aggregated comments ---
+${aggregatedComments}
+--- end of aggregated comments ---
 `;
 
     if (projectRules) {

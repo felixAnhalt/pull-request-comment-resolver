@@ -1,7 +1,13 @@
 /**
  * @file Implements the VersionControlService interface for GitLab using @gitbeaker/rest.
  */
-import {Camelize, DiscussionNotePositionOptions, DiscussionNoteSchema, DiscussionSchema, Gitlab} from "@gitbeaker/rest";
+import {
+  Camelize,
+  DiscussionNotePositionOptions,
+  DiscussionNoteSchema,
+  Gitlab, MergeRequestNotes,
+  MergeRequestNoteSchema
+} from "@gitbeaker/rest";
 import {
   VersionControlService,
   PullRequestDetails, // GitLab calls these Merge Requests
@@ -19,6 +25,7 @@ import "dotenv/config"; // To load GITLAB_TOKEN and GITLAB_HOST from .env
 function parseGitLabMrUrl(
   urlString: string
 ): { projectPath: string; mrIid: number } | null {
+
   try {
     const url = new URL(urlString);
     const pathParts = url.pathname.split("/").filter((part) => part.length > 0);
@@ -66,6 +73,7 @@ export class GitLabService implements VersionControlService {
     this.gitlab = new Gitlab({
       host: host,
       token: token,
+      camelize: false,
     });
   }
 
@@ -83,7 +91,6 @@ export class GitLabService implements VersionControlService {
   ): Promise<PullRequestDetails> {
     let projectPath: string;
     let merge_request_iid: number;
-
     if (typeof prIdentifier === "object") {
       projectPath = prIdentifier.repo;
       merge_request_iid = prIdentifier.pullNumber;
@@ -144,21 +151,41 @@ export class GitLabService implements VersionControlService {
     prDetails: PullRequestDetails
   ): Promise<Comment[]> {
     try {
-      const notes = await this.gitlab.MergeRequestNotes.all(
-        prDetails.repo,
-        prDetails.pullNumber
-      );
+      const threads = await this.gitlab.MergeRequestDiscussions.all(
+          prDetails.repo,
+          prDetails.pullNumber
+      )
+
+      // threads is an array of discussions, each containing notes (comments)
+      const notes = threads.filter((thread) => {
+        if(!thread.notes) {
+          return false
+        }
+        return [...(thread.notes as DiscussionNoteSchema[])].some((note) => {
+            return note.type === "DiffNote" && note.body && note.body.length > 0;
+        })
+      }).reduce<DiscussionNoteSchema[]>((acc, thread) => {
+        if (thread.notes) {
+          const threadNotes = thread.notes as DiscussionNoteSchema[];
+          const filteredNotes = threadNotes.filter((note) => {
+            return note.type === "DiffNote" && note.body && note.body.length > 0;
+          });
+          return acc.concat(filteredNotes);
+        }
+        return acc;
+      }, []);
 
       return notes
-        .filter((note) => note.type === "DiffNote" && note.resolvable)
-        .map((note) => {
+        .map<Comment>((note) => {
           let filePath: string | undefined = undefined;
           let lineNumber: number | undefined = undefined;
+          let startLineNumber: number | undefined = undefined;
 
           if (note.position) {
             const position = note.position as any; // Best-effort mapping
             filePath = position.new_path || position.old_path;
-            lineNumber = position.new_line || position.old_line;
+            lineNumber = position.line_range.end.new_line || position.old_line;
+            startLineNumber = position.line_range.start.new_line || position.old_line;
           }
 
           return {
@@ -166,7 +193,8 @@ export class GitLabService implements VersionControlService {
             body: note.body,
             filePath: filePath,
             endLineNumber: lineNumber,
-          };
+            startLineNumber: startLineNumber,
+          } as Comment;
         });
     } catch (error: any) {
       console.error(
@@ -263,11 +291,18 @@ export class GitLabService implements VersionControlService {
     try {
       // Fetch the original note to determine if we can use its position.
       // This helps decide if the new discussion should be linked to a specific diff line.
-      const originalDiscussionThread = await this.gitlab.MergeRequestDiscussions.show(
+      const threads = await this.gitlab.MergeRequestDiscussions.all(
           prDetails.repo,
-          prDetails.pullNumber,
-          "" + replyToCommentId
+          prDetails.pullNumber
       )
+        const originalDiscussionThread = threads.find((thread) => {
+            // @ts-ignore
+          return thread.notes && ([...thread.notes] as DiscussionNoteSchema[]).some((note) => note.id === replyToCommentId);
+        });
+
+        if (!originalDiscussionThread) {
+            throw new Error("Original discussion thread not found.");
+        }
       const firstThreadNote = originalDiscussionThread.notes && originalDiscussionThread.notes[0];
 
       if (!firstThreadNote) {
@@ -297,14 +332,13 @@ export class GitLabService implements VersionControlService {
 
       // Create a new discussion with the suggestion.
       // The third argument to MergeRequestDiscussions.create is the options object.
-      await this.gitlab.MergeRequestDiscussions.create(
+      await this.gitlab.MergeRequestDiscussions.addNote(
         prDetails.repo,
         prDetails.pullNumber,
-          newDiscussionNote.body!,
-          {
-            position: firstThreadNote.position as DiscussionNotePositionOptions,
-          }
-      );
+        originalDiscussionThread.id,
+        newDiscussionNote.id!,
+          discussionBody!,
+      )
 
       console.log(
         `Successfully posted suggestion as new discussion (related to comment ID ${replyToCommentId}) on MR !${prDetails.pullNumber}.`
