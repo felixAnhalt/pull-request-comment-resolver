@@ -2,7 +2,7 @@
   "name": "pull-request-comment-resolver",
   "version": "1.0.0",
   "description": "Automatically scan GitHub Pull Request comments and suggest commit changes that resolve reviewer feedback using LLM-powered code suggestions (like the GitHub suggestion syntax).",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -11,9 +11,11 @@
   "license": "ISC",
   "devDependencies": {
     "@types/node": "^22.15.18",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "3.1.3"
   },
   "dependencies": {
+    "@gitbeaker/rest": "42.5.0",
     "@langchain/azure-openai": "^0.0.11",
     "@octokit/rest": "^21.1.1",
     "dotenv": "^16.5.0",

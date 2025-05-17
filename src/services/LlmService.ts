@@ -17,6 +17,8 @@ export interface LlmPromptPayload {
   language?: string;
   /** Optional. The file path where the code exists, for additional context. */
   filePath?: string;
+  originalCode?: string;
+  aggregatedComments?: string;
 }
 
 /**

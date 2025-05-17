@@ -1,19 +1,19 @@
 /**
  * @file Implements the LlmService interface for Azure OpenAI using Langchain.
  */
-import { AzureOpenAI } from "@langchain/azure-openai";
+import { AzureChatOpenAI } from "@langchain/openai";
 import {
   LlmService,
   LlmPromptPayload,
   LlmSuggestion,
 } from "../services/LlmService";
-import "dotenv/config"; // To load Azure OpenAI environment variables
+import "dotenv/config";
 
 /**
  * Implements LlmService for interacting with Azure OpenAI via Langchain.
  */
 export class AzureOpenAiLlmService implements LlmService {
-  private llm: AzureOpenAI;
+  private llm: AzureChatOpenAI;
 
   /**
    * Initializes a new instance of the AzureOpenAiLlmService.
@@ -24,21 +24,26 @@ export class AzureOpenAiLlmService implements LlmService {
    */
   constructor() {
     const apiKey = process.env.AZURE_OPENAI_API_KEY;
-    const instanceName = process.env.AZURE_OPENAI_API_INSTANCE_NAME;
+    const modelName = process.env.AZURE_OPENAI_API_MODEL_NAME;
     const deploymentName = process.env.AZURE_OPENAI_API_DEPLOYMENT_NAME;
+    const endpoint = process.env.AZURE_OPENAI_ENDPOINT_NAME;
     const apiVersion = process.env.AZURE_OPENAI_API_VERSION;
 
-    if (!apiKey || !instanceName || !deploymentName || !apiVersion) {
+
+    // AZURE_OPENAI_API_INSTANCE_NAME="gpt-4.1-mini-test" # e.g., my-openai-resource
+
+    if (!apiKey || !modelName || !deploymentName || !apiVersion || !endpoint) {
       throw new Error(
-        "Missing one or more Azure OpenAI environment variables (AZURE_OPENAI_API_KEY, AZURE_OPENAI_API_INSTANCE_NAME, AZURE_OPENAI_API_DEPLOYMENT_NAME, AZURE_OPENAI_API_VERSION). Please ensure they are set."
+        "Missing one or more Azure OpenAI environment variables (AZURE_OPENAI_API_KEY, AZURE_OPENAI_API_INSTANCE_NAME, AZURE_OPENAI_API_DEPLOYMENT_NAME, AZURE_OPENAI_API_VERSION, AZURE_OPENAI_ENDPOINT_NAME). Please ensure they are set."
       );
     }
 
-    this.llm = new AzureOpenAI({
+    this.llm = new AzureChatOpenAI({
       azureOpenAIApiKey: apiKey,
       azureOpenAIApiVersion: apiVersion,
       azureOpenAIApiDeploymentName: deploymentName,
-      // azureOpenAIApiInstanceName: instanceName, // Temporarily remove to see if other params are accepted
+      azureOpenAIEndpoint: endpoint,
+      model: modelName,
       // Optional parameters:
       // temperature: 0.7,
       // maxTokens: 1000,
@@ -51,11 +56,12 @@ export class AzureOpenAiLlmService implements LlmService {
    * @returns A promise that resolves to the LLM-generated suggestion.
    */
   async generateSuggestion(payload: LlmPromptPayload): Promise<LlmSuggestion> {
-    const { reviewerComment, codeContext, projectRules, language, filePath } =
+    const { reviewerComment, codeContext, projectRules, language, filePath, originalCode, aggregatedComments } =
       payload;
 
     const systemPrompt = `You are an expert software developer assisting with code reviews. Your task is to provide a code suggestion to address a reviewer's comment.
 Respond ONLY with a GitHub commit suggestion markdown block and a one-line rationale for the change.
+
 The suggestion block should look like:
 \`\`\`suggestion
 <new_code_here>
@@ -80,9 +86,17 @@ Here is the relevant code context`;
       humanPromptContent += ` (language: ${language})`;
     }
     humanPromptContent += `:
---- start of code context ---
+--- start of extended code context ---
 ${codeContext}
---- end of code context ---
+--- end of extended code context ---
+Here is the original code:
+--- start of exact original code lines you are replacing in github ---
+${originalCode}
+--- end of exact original code lines you are replacing in github ---
+Here is a collection of all comments from this pull request:
+--- start of aggregated comments ---
+${aggregatedComments}
+--- end of aggregated comments ---
 `;
 
     if (projectRules) {
@@ -93,13 +107,13 @@ ${projectRules}
     }
 
     humanPromptContent += `
-Based on the comment and the code, please provide a GitHub commit suggestion markdown block and a one-line rationale.`;
+Based on the comment and the code, please provide a GitHub commit suggestion markdown block and a one-line rationale.
+If it doesn't make sense to provide a suggestion, respond with a comment rationale only.`;
 
     try {
       const fullPrompt = `${systemPrompt}\n\n${humanPromptContent}`;
       const response = await this.llm.invoke(fullPrompt);
-      const responseText =
-        typeof response === "string" ? response : String(response);
+      const responseText = response.content as string;
 
       const suggestionMatch = responseText.match(
         /```suggestion\n([\s\S]*?)\n```/
