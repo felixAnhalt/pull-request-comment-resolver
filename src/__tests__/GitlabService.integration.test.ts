@@ -2,23 +2,22 @@ import { GitLabService } from '../implementations/GitLabService';
 import { VersionControlService, PullRequestDetails } from '../services/VersionControlService';
 
 import {describe, expect, beforeAll, it} from 'vitest';
-import {GitHubService} from "../implementations/GitHubService";
 
 const GITLAB_PROJECT_PATH = process.env.GITLAB_PROJECT_PATH || 'felixAnhalt/pull-request-comment-resolver';
 const GITLAB_PR_NUMBER = process.env.GITLAB_PR_NUMBER
     ? parseInt(process.env.GITLAB_PR_NUMBER, 10)
     : 1;
 
-describe('Main Github Integration', () => {
-    let github: VersionControlService;
+describe('GitLabService Integration', () => {
+    let gitlab: VersionControlService;
     let prDetails: PullRequestDetails;
 
     beforeAll(async () => {
-        github = new GitHubService();
-        prDetails = await github.getPullRequestDetails({
-            owner: GITHUB_OWNER,
-            repo: GITHUB_REPO,
-            pullNumber: GITHUB_PR_NUMBER,
+        gitlab = new GitLabService();
+        prDetails = await gitlab.getPullRequestDetails({
+            owner: '',
+            repo: GITLAB_PROJECT_PATH,
+            pullNumber: GITLAB_PR_NUMBER,
         });
     });
 
