@@ -90,9 +90,9 @@ Here is the relevant code context`;
 ${codeContext}
 --- end of extended code context ---
 Here is the original code:
---- start of exact original code lines ---
+--- start of exact original code lines you are replacing in github ---
 ${originalCode}
---- end of exact original code lines ---
+--- end of exact original code lines you are replacing in github ---
 `;
 
     if (projectRules) {
@@ -103,7 +103,8 @@ ${projectRules}
     }
 
     humanPromptContent += `
-Based on the comment and the code, please provide a GitHub commit suggestion markdown block and a one-line rationale.`;
+Based on the comment and the code, please provide a GitHub commit suggestion markdown block and a one-line rationale.
+If it doesn't make sense to provide a suggestion, respond with a comment rationale only.`;
 
     try {
       const fullPrompt = `${systemPrompt}\n\n${humanPromptContent}`;

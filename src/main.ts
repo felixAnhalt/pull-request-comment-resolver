@@ -236,7 +236,6 @@ export async function main() {
     // 3. Process each comment
     // For MVP, process all comments. Later, might filter for specific keywords or unanswered comments.
     for (const comment of comments) {
-      // TODO: Add a filter here, e.g., if comment.body.includes("[suggest]")
       // For now, process all comments that are on a file/line.
       if (comment.filePath && comment.endLineNumber) {
         await processComment(comment, prDetails, vcsService, llmService);
@@ -256,8 +255,3 @@ export async function main() {
     process.exit(1);
   }
 }
-
-main().catch((e) => {
-  console.error("Unhandled promise rejection in main:", e);
-  process.exit(1);
-});

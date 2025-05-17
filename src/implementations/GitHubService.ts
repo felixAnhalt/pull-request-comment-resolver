@@ -133,7 +133,10 @@ export class GitHubService implements VersionControlService {
           pull_number: prDetails.pullNumber,
         });
 
-      return reviewComments.map((comment) => ({
+      return reviewComments.filter((comment) => {
+        // only do it for comments wich are referenciing lines and are root
+        return comment.subject_type === "line" && comment.in_reply_to_id === undefined
+      }).map((comment) => ({
         id: comment.id,
         body: comment.body,
         filePath: comment.path,
